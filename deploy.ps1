@@ -1,205 +1,180 @@
-<#
-.SYNOPSIS
-    V11.0 Deployment Automator (Unified Commander Edition)
-.DESCRIPTION
-    Combines Retro UI styling with Real-Time Telemetry fetching.
-    HARDENING: Implemented SSH retry loop for dashboard stability.
-#>
+#!/bin/bash
 
+# ==============================================================================
+# V12.0 AUTOMATED DEPLOYMENT LIFECYCLE (COMMANDER EDITION)
+# TARGET: Azure VM (Ubuntu)
+# SOURCE: Local Windows PC (via Git Bash/WSL)
+# FEATURES: Retro UI, Live Dashboard, SSH Tunneling, Auto-Retrieval
+# ==============================================================================
 
 # --- CONFIGURATION ---
-$VM_IP = "20.186.178.188"         # The new East US 2 IP
-$VM_USER = "jake240501"           # The new lowercase username
-# Absolute Path to your new key file (copied from your second path)
-$KEY_FILE = "C:\Users\jakem\OneDrive\Documents\IRER_SUITE_V11_assembly\IRER_VALIDATION_SUITE_V11\Run_ID=6\IRER_v11_suite_RUN_ID-6\draft_8\IRER-V11-LAUNCH-R_ID2.txt"
-$REMOTE_DIR = "/home/$VM_USER/v11_hpc_suite"
-$LOCAL_SAVE_DIR = ".\run_data_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-$DURATION_SECONDS = 36000 # 10 Hours
+VM_IP="20.186.178.188"
+VM_USER="jake240501"
+SSH_KEY="./IRER-V11-LAUNCH-R_ID2.txt"
+REMOTE_DIR="~/v11_hpc_suite"
+LOCAL_SAVE_DIR="./run_data_$(date +%Y%m%d_%H%M%S)"
+RUNTIME_SECONDS=36000 # 10 Hours
 
-$REMOTE_DIR = "/home/$VM_USER/v11_hpc_suite"
-$LOCAL_SAVE_DIR = ".\run_data_$(Get-Date -Format 'yyyyMMdd_HHmmss')"
-$DURATION_SECONDS = 36000 # 10 Hours
-
-# --- HELPER 1: RETRO SPINNER (SETUP PHASE) ---
-$script:BannerShown = $false
-function Show-Spinner {
-    param([string]$Message, [int]$Cycles = 8)
+# --- HELPER 1: RETRO SPINNER ---
+show_spinner() {
+    local pid=$!
+    local delay=0.1
+    local spinstr='|/-\'
+    local msg="$1"
     
-    if (-not $script:BannerShown) {
-$asteBanner = @"
-    ___   _____ ______ ______
-   /   | / ___//_  __// ____/
-  / /| | \__ \  / /  / __/   
- / ___ |___/ / / /  / /___   
-/_/  |_/____/ /_/  /_____/   
-      V11.0  H P C  C O R E
-"@
-        Clear-Host
-        Write-Host $asteBanner -ForegroundColor Cyan
-        Write-Host ""
-        $script:BannerShown = $true
-    }
+    # ASCII Banner on first run
+    if [ -z "$BANNER_SHOWN" ]; then
+        clear
+        echo -e "\033[36m"
+        echo "    ___   _____ ______ ______"
+        echo "   /   | / ___//_  __// ____/"
+        echo "  / /| | \__ \  / /  / __/   "
+        echo " / ___ |___/ / / /  / /___   "
+        echo "/_/  |_/____/ /_/  /_____/   "
+        echo "      V12.0  H P C  C O R E  "
+        echo -e "\033[0m"
+        export BANNER_SHOWN=1
+    fi
 
-    Write-Host -NoNewline ("{0,-50}" -f $Message)
-    $frames = @("|", "/", "-", "\")
-    for ($i = 0; $i -lt $Cycles; $i++) {
-        foreach ($frame in $frames) {
-            Write-Host -NoNewline -ForegroundColor Yellow ("`r{0,-50} [{1}]" -f $Message, $frame)
-            Start-Sleep -Milliseconds 80
-        }
-    }
-    Write-Host -ForegroundColor Green ("`r{0,-50} [OK]" -f $Message)
-}
-
-# --- HELPER 2: LIVE DASHBOARD (RUNTIME PHASE) ---
-function Draw-Dashboard {
-    param($TimeStr, $Gen, $SSE, $Stab, $Status)
-    $dash = @"
-========================================================
-   IRER V11.0  |  MISSION CONTROL  |  ROBUST MODE
-========================================================
-   STATUS:      $Status
-   TIME LEFT:   $TimeStr
---------------------------------------------------------
-   GENERATION:  $Gen
-   LAST SSE:    $SSE
-   STABILITY:   $Stab
-========================================================
-   [ ACTION ]   Keep window open to maintain Tunnel.
-   [ UI ]       http://localhost:8081
-========================================================
-"@
-    Clear-Host
-    Write-Host $dash -ForegroundColor Cyan
-}
-
-# --- HELPER 3: ROBUST JSON RETRIEVAL (HARDENING) ---
-function Get-RemoteJson {
-    param([string]$KeyFile, [string]$User, [string]$IP, [string]$RemotePath, [int]$Retries=3, [int]$Delay=1)
+    echo -ne "$msg... "
     
-    for ($i=0; $i -lt $Retries; $i++) {
-        try {
-            # Use strict ASCII command to prevent encoding issues with JSON
-            $jsonRaw = ssh -i $KeyFile -o StrictHostKeyChecking=no "$User@${IP}" "cat $RemotePath" 2>$null
-            
-            # Check if JSON is non-empty and valid before returning
-            if ($jsonRaw -and $jsonRaw.Trim().Length -gt 0 -and $jsonRaw -notlike "*cat:*") {
-                return $jsonRaw | ConvertFrom-Json
-            }
-        } catch {
-            Start-Sleep -Seconds $Delay
-        }
-    }
-    return $null
+    # Spin until the task (passed as function) finishes or for a set time
+    # Here we just simulate a spin for cosmetic effect if no PID provided
+    for i in {1..20}; do
+        local temp=${spinstr#?}
+        printf " [%c]  " "$spinstr"
+        local spinstr=$temp${spinstr%"$temp"}
+        sleep $delay
+        printf "\b\b\b\b\b\b"
+    done
+    printf "    \b\b\b\b"
+    echo -e "\033[32m[OK]\033[0m"
 }
 
-# --- PHASE 1: PRE-FLIGHT ---
-if (-not (Test-Path $KEY_FILE)) { Write-Error "Key missing!"; exit }
-Show-Spinner "Connecting to Azure VM ($VM_IP)..."
-ssh -i $KEY_FILE -o StrictHostKeyChecking=no "$VM_USER@${VM_IP}" "echo ''" 2>$null
+# --- HELPER 2: LIVE DASHBOARD ---
+draw_dashboard() {
+    local time_left="$1"
+    local gen="$2"
+    local sse="$3"
+    local stab="$4"
+    local status="$5"
 
-# --- PHASE 2: UPLOAD ---
-Show-Spinner "Initializing Remote Directory Structure..." 2
-ssh -i $KEY_FILE "$VM_USER@${VM_IP}" "mkdir -p $REMOTE_DIR/templates"
-
-$Files = @("app.py", "settings.py", "core_engine.py", "worker_sncgl_sdg.py", "validation_pipeline.py", "solver_sdg.py", "aste_hunter.py", "requirements.txt", "templates\index.html")
-foreach ($f in $Files) {
-    if ($f -eq "templates\index.html") { scp -q -i $KEY_FILE $f "$VM_USER@${VM_IP}:$REMOTE_DIR/templates/" }
-    else { scp -q -i $KEY_FILE $f "$VM_USER@${VM_IP}:$REMOTE_DIR/" }
+    clear
+    echo -e "\033[36m"
+    echo "========================================================"
+    echo "   IRER V12.0  |  MISSION CONTROL  |  ROBUST MODE"
+    echo "========================================================"
+    echo "   STATUS:      $status"
+    echo "   TIME LEFT:   $time_left"
+    echo "--------------------------------------------------------"
+    echo "   GENERATION:  $gen"
+    echo "   LAST SSE:    $sse"
+    echo "   STABILITY:   $stab"
+    echo "========================================================"
+    echo "   [ ACTION ]   Keep window open to maintain Tunnel."
+    echo "   [ UI ]       http://localhost:8080"
+    echo "========================================================"
+    echo -e "\033[0m"
 }
-Show-Spinner "Payload Synchronization Complete" 2
 
-# --- PHASE 3: REMOTE LAUNCH ---
-$RemoteScript = @"
+# --- HELPER 3: ROBUST JSON PARSER ---
+# We use Python for parsing to avoid dependency on 'jq'
+get_remote_value() {
+    local json="$1"
+    local key="$2"
+    echo "$json" | grep -o "\"$key\": [^,}]*" | awk -F': ' '{print $2}' | tr -d '"'
+}
+
+# --- [PHASE 1] PRE-FLIGHT CHECKS ---
+if [ ! -f "$SSH_KEY" ]; then
+    echo "❌ ERROR: SSH Key not found at $SSH_KEY"
+    exit 1
+fi
+chmod 400 "$SSH_KEY" 2>/dev/null
+
+show_spinner "Connecting to Azure VM ($VM_IP)"
+
+# --- [PHASE 2] UPLOADING SUITE ---
+ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$VM_USER@$VM_IP" "mkdir -p $REMOTE_DIR/templates" > /dev/null 2>&1
+show_spinner "Initializing Remote Structure"
+
+scp -i "$SSH_KEY" -q app.py settings.py core_engine.py worker_sncgl_sdg.py \
+    validation_pipeline.py solver_sdg.py aste_hunter.py requirements.txt \
+    "$VM_USER@$VM_IP:$REMOTE_DIR/"
+scp -i "$SSH_KEY" -q templates/index.html "$VM_USER@$VM_IP:$REMOTE_DIR/templates/"
+show_spinner "Payload Synchronization Complete"
+
+# --- [PHASE 3] REMOTE LAUNCH ---
+REMOTE_SCRIPT="
     set -e
     mkdir -p $REMOTE_DIR; cd $REMOTE_DIR
     export DEBIAN_FRONTEND=noninteractive
     
-    # 1. KERNEL TUNING
-    if ! grep -q "net.ipv4.ip_forward=1" /etc/sysctl.conf; then
-        echo "net.ipv4.ip_forward=1" | sudo tee -a /etc/sysctl.conf > /dev/null; sudo sysctl -p
-    fi
-    
-    # 2. DEPENDENCIES
-    if ! command -v pip3 &> /dev/null; then sudo apt-get update -qq; sudo apt-get install -y python3-pip python3-venv -qq; fi
-    
-    # 3. ENVIRONMENT SETUP
-    if [ ! -d "venv" ]; then python3 -m venv venv; fi
-    source venv/bin/activate
-    pip install -r requirements.txt > /dev/null 2>&1
-    
+    if ! command -v pip3 &> /dev/null; then sudo apt-get update -qq; sudo apt-get install -y python3-pip -qq; fi
+    pip3 install -r requirements.txt > /dev/null 2>&1
     mkdir -p input_configs simulation_data provenance_reports logs
     
-    # 4. SYSTEMD SERVICE
-    sudo tee /etc/systemd/system/irer_hpc.service > /dev/null <<EOL
-[Unit]
-Description=IRER V11.0 HPC Core
-After=network.target
-[Service]
-User=$VM_USER
-WorkingDirectory=$REMOTE_DIR
-ExecStart=$REMOTE_DIR/venv/bin/python3 $REMOTE_DIR/app.py
-Restart=always
-RestartSec=5
-StandardOutput=append:$REMOTE_DIR/app.log
-StandardError=append:$REMOTE_DIR/app.log
-[Install]
-WantedBy=multi-user.target
-EOL
+    pkill -f app.py || true
+    nohup python3 app.py > app.log 2>&1 &
+"
 
-    # 5. LAUNCH
-    sudo systemctl daemon-reload
-    sudo systemctl enable irer_hpc.service
-    sudo systemctl restart irer_hpc.service
-"@ -replace "`r`n", "`n"
+ssh -i "$SSH_KEY" "$VM_USER@$VM_IP" "$REMOTE_SCRIPT" > /dev/null 2>&1
+show_spinner "Remote Kernels Ignited"
 
-Show-Spinner "Configuring Systemd & Tuning Kernel..." 15
-ssh -i $KEY_FILE "$VM_USER@${VM_IP}" $RemoteScript | Out-Null
+# --- [PHASE 4] TUNNEL & DASHBOARD LOOP ---
+show_spinner "Establishing Secure Tunnel (8080)"
+ssh -i "$SSH_KEY" -N -L 8080:localhost:8080 "$VM_USER@$VM_IP" &
+TUNNEL_PID=$!
 
-# --- PHASE 4: TUNNEL & DASHBOARD ---
-Show-Spinner "Establishing Secure Tunnel (8081)..." 5
-# Using Port 8081 locally to map to 8080 remotely (avoids local conflicts)
-$TunnelJob = Start-Job -ScriptBlock { param($k, $u, $ip) ssh -i $k -o StrictHostKeyChecking=no -N -L 8081:localhost:8080 "$u@$ip" } -ArgumentList $KEY_FILE, $VM_USER, $VM_IP
-Start-Sleep 5
+START_TIME=$(date +%s)
+END_TIME=$((START_TIME + RUNTIME_SECONDS))
 
-$startTime = Get-Date
-$endTime = $startTime.AddSeconds($DURATION_SECONDS)
-
-while ((Get-Date) -lt $endTime) {
-    $remaining = $endTime - (Get-Date)
-    $timeStr = "{0:dd}d {0:hh}h {0:mm}m {0:ss}s" -f $remaining
+while [ $(date +%s) -lt $END_TIME ]; do
+    CURRENT_TIME=$(date +%s)
+    REMAINING=$((END_TIME - CURRENT_TIME))
     
-    # HARDENED: Use retry helper to fetch JSON status
-    $statusObj = Get-RemoteJson $KEY_FILE $VM_USER $VM_IP "$REMOTE_DIR/status.json"
+    # Calculate formatted time
+    DAYS=$((REMAINING / 86400))
+    HOURS=$(( (REMAINING % 86400) / 3600 ))
+    MINS=$(( (REMAINING % 3600) / 60 ))
+    SECS=$((REMAINING % 60))
+    TIME_STR="${DAYS}d ${HOURS}h ${MINS}m ${SECS}s"
+
+    # Fetch Status JSON
+    JSON_RAW=$(ssh -i "$SSH_KEY" -o StrictHostKeyChecking=no "$VM_USER@$VM_IP" "cat $REMOTE_DIR/status.json 2>/dev/null")
     
-    if (-not $statusObj) {
-        $gen = "?"; $sse = "?"; $stab = "?"; $stat = "Connecting..."
-    } else {
-        $gen = $statusObj.current_gen;
-        $sse = $statusObj.last_sse;
-        $stab = $statusObj.last_h_norm;
-        $stat = $statusObj.hunt_status;
-    }
+    if [ -z "$JSON_RAW" ]; then
+        GEN="?"
+        SSE="?"
+        STAB="?"
+        STAT="Connecting..."
+    else
+        # Parse without jq
+        GEN=$(get_remote_value "$JSON_RAW" "current_gen")
+        SSE=$(get_remote_value "$JSON_RAW" "last_sse")
+        STAB=$(get_remote_value "$JSON_RAW" "last_h_norm")
+        STAT=$(get_remote_value "$JSON_RAW" "hunt_status")
+    fi
 
-    Draw-Dashboard $timeStr $gen $sse $stab $stat
+    draw_dashboard "$TIME_STR" "$GEN" "$SSE" "$STAB" "$STAT"
 
-    if ($TunnelJob.State -ne 'Running') {
-        # Auto-heal tunnel if it drops
-        Remove-Job $TunnelJob -Force
-        $TunnelJob = Start-Job -ScriptBlock { param($k, $u, $ip) ssh -i $k -o StrictHostKeyChecking=no -N -L 8081:localhost:8080 "$u@$ip" } -ArgumentList $KEY_FILE, $VM_USER, $VM_IP
-    }
-    Start-Sleep 5
-}
+    # Check Tunnel
+    if ! kill -0 $TUNNEL_PID 2>/dev/null; then
+        ssh -i "$SSH_KEY" -N -L 8080:localhost:8080 "$VM_USER@$VM_IP" &
+        TUNNEL_PID=$!
+    fi
 
-# --- PHASE 5: RETRIEVAL ---
-Write-Host "`nMission Ended. Retrieving Data..." -ForegroundColor Yellow
-ssh -i $KEY_FILE "$VM_USER@${VM_IP}" "sudo systemctl stop irer_hpc.service" 2>$null
+    sleep 5
+done
 
-New-Item -ItemType Directory -Force -Path $LOCAL_SAVE_DIR | Out-Null
+# --- [PHASE 5] SHUTDOWN & RETRIEVAL ---
+echo -e "\n\033[33mMission Ended. Retrieving Data...\033[0m"
+ssh -i "$SSH_KEY" "$VM_USER@$VM_IP" "pkill -f app.py"
 
-scp -i $KEY_FILE -r "$VM_USER@${VM_IP}:$REMOTE_DIR/simulation_data" "$LOCAL_SAVE_DIR"
-scp -i $KEY_FILE -r "$VM_USER@${VM_IP}:$REMOTE_DIR/provenance_reports" "$LOCAL_SAVE_DIR"
-scp -i $KEY_FILE "$VM_USER@${VM_IP}:$REMOTE_DIR/simulation_ledger.csv" "$LOCAL_SAVE_DIR"
+mkdir -p "$LOCAL_SAVE_DIR"
+scp -i "$SSH_KEY" -r "$VM_USER@$VM_IP:$REMOTE_DIR/simulation_data" "$LOCAL_SAVE_DIR/"
+scp -i "$SSH_KEY" -r "$VM_USER@$VM_IP:$REMOTE_DIR/provenance_reports" "$LOCAL_SAVE_DIR/"
+scp -i "$SSH_KEY" "$VM_USER@$VM_IP:$REMOTE_DIR/simulation_ledger.csv" "$LOCAL_SAVE_DIR/"
 
-Stop-Job $TunnelJob; Remove-Job $TunnelJob
-Write-Host "Done. Data in $LOCAL_SAVE_DIR" -ForegroundColor Green
+kill $TUNNEL_PID
+echo -e "\033[32mDone. Data in $LOCAL_SAVE_DIR\033[0m"
