@@ -1,0 +1,27 @@
+# V11.0 "HPC-SDG" Suite Dependencies
+
+# --- Governance & Validation ---
+jsonschema>=4.0.0
+
+# --- Control Plane (app.py) ---
+flask
+watchdog
+gunicorn
+
+# --- HPC Core (worker_sncgl_sdg.py) ---
+jax
+jaxlib
+h5py
+
+# --- Analysis & Validation ---
+numpy
+scipy
+pandas
+
+# --- V12 Distributed Orchestration (The Network Bridge) ---
+paramiko>=2.11.0
+
+# --- Advanced Layer 2 Analysis ---
+matplotlib
+ripser
+persim

@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en" class="dark">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>IRER V11.0 | Scientific Control Hub</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script>tailwind.config = { darkMode: 'class' }</script>
+</head>
+<body class="bg-gray-950 text-gray-200 font-sans p-8">
+    <div class="max-w-5xl mx-auto">
+        <div class="mb-8">
+            <pre class="text-xs md:text-sm font-mono text-cyan-400 leading-none select-none">
+    ___   _____ ______ ______
+   /   | / ___//_  __// ____/
+  / /| | \__ \  / /  / __/   
+ / ___ |___/ / / /  / /___   
+/_/  |_/____/ /_/  /_____/   
+      V11.0  H P C  C O R E
+            </pre>
+            <div class="flex justify-between items-end mt-2">
+                <p class="text-gray-500 text-xs font-mono uppercase tracking-widest">/// S-NCGL Metric Hunt // Status: ONLINE</p>
+                <span id="connection-status" class="px-3 py-1 rounded-full bg-green-900 text-green-300 text-xs font-mono">Connected</span>
+            </div>
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-lg shadow-lg mb-6 border border-gray-700 border-l-4 border-l-cyan-500">
+            <h2 class="text-xl font-semibold mb-4 text-white border-b border-gray-700 pb-2">Mission Parameters</h2>
+            
+            <div class="grid grid-cols-2 gap-6 mb-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-300">Generations</label>
+                    <input type="number" id="gen-input" value="20" class="mt-1 block w-full bg-gray-900 border border-gray-600 rounded-md text-white p-2 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-300">Population Size</label>
+                    <input type="number" id="pop-input" value="10" class="mt-1 block w-full bg-gray-900 border border-gray-600 rounded-md text-white p-2 focus:border-cyan-500 focus:ring-1 focus:ring-cyan-500">
+                </div>
+            </div>
+
+            <details class="mb-6 bg-gray-900 rounded-md border border-gray-700">
+                <summary class="p-3 text-sm font-medium text-gray-300 cursor-pointer hover:text-cyan-400">Advanced Physics Configuration</summary>
+                <div class="grid grid-cols-3 gap-4 p-4 border-t border-gray-700">
+                    <div>
+                        <label class="block text-xs text-gray-400">Grid Size (N)</label>
+                        <input type="number" id="grid-size" value="64" class="w-full bg-gray-800 text-white p-1 rounded text-sm border border-gray-600">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400">Time Steps (T)</label>
+                        <input type="number" id="t-steps" value="200" class="w-full bg-gray-800 text-white p-1 rounded text-sm border border-gray-600">
+                    </div>
+                    <div>
+                        <label class="block text-xs text-gray-400">Delta Time (dt)</label>
+                        <input type="number" id="dt-val" value="0.01" step="0.001" class="w-full bg-gray-800 text-white p-1 rounded text-sm border border-gray-600">
+                    </div>
+                </div>
+            </details>
+
+            <button id="btn-start-hunt" class="w-full bg-gradient-to-r from-cyan-700 to-blue-700 hover:from-cyan-600 hover:to-blue-600 text-white font-bold py-3 px-4 rounded transition-all disabled:opacity-50 disabled:cursor-not-allowed">
+                INITIALIZE HUNT SEQUENCE
+            </button>
+        </div>
+
+        <div class="bg-gray-800 p-6 rounded-lg shadow-lg border border-gray-700 border-l-4 border-l-purple-500">
+            <h2 class="text-xl font-semibold mb-2 text-white">Live Telemetry</h2>
+            <div id="status-banner" class="p-3 mb-4 rounded-md text-center font-mono bg-gray-900 text-yellow-300 border border-gray-700">Idle</div>
+            
+            <div id="progress-container" class="mb-6 hidden">
+                <div class="flex justify-between text-xs text-gray-400 mb-1">
+                    <span>Mission Progress</span>
+                    <span id="progress-label">0%</span>
+                </div>
+                <div class="w-full bg-gray-900 rounded-full h-2 border border-gray-700">
+                    <div id="progress-bar" class="bg-cyan-500 h-2 rounded-full transition-all duration-500" style="width: 0%"></div>
+                </div>
+            </div>
+
+            <div class="bg-gray-900 p-2 rounded border border-gray-700 mb-4">
+                <canvas id="telemetryChart" height="80"></canvas>
+            </div>
+
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+                <div class="bg-gray-900 p-3 rounded border border-gray-700 relative group">
+                    <div class="flex justify-between items-center">
+                        <div class="text-xs text-gray-500 uppercase">Last Event</div>
+                        <button id="btn-inspect" onclick="inspectLastRun()" class="hidden text-[10px] bg-cyan-900 text-cyan-300 px-2 py-0.5 rounded hover:bg-cyan-700 border border-cyan-700 transition-colors">
+                            INSPECT
+                        </button>
+                    </div>
+                    <div id="status-event" class="font-mono text-sm text-gray-300 truncate mt-1">-</div>
+                </div>
+                
+                <div class="bg-gray-900 p-3 rounded border border-gray-700">
+                    <div class="text-xs text-gray-500 uppercase">SSE (Loss)</div>
+                    <div id="status-sse" class="font-mono text-lg text-cyan-400">-</div>
+                </div>
+                <div class="bg-gray-900 p-3 rounded border border-gray-700">
+                    <div class="text-xs text-gray-500 uppercase">H-Norm (Stability)</div>
+                    <div id="status-h-norm" class="font-mono text-lg text-purple-400">-</div>
+                </div>
+            </div>
+
+            <h3 class="font-semibold text-sm mb-2 text-gray-400">Evolutionary Result (JSON)</h3>
+            <pre id="final-result-box" class="bg-gray-950 p-3 rounded h-32 overflow-y-auto text-xs font-mono text-green-400 border border-gray-700"></pre>
+        </div>
+    </div>
+
+    <div id="inspect-modal" class="fixed inset-0 bg-black bg-opacity-90 hidden flex items-center justify-center z-50 backdrop-blur-sm">
+        <div class="bg-gray-800 border border-cyan-500 rounded-lg w-3/4 h-3/4 flex flex-col p-4 shadow-2xl shadow-cyan-500/20">
+            <div class="flex justify-between items-center mb-4 border-b border-gray-700 pb-2">
+                <h3 class="text-cyan-400 font-mono text-lg">Artifact Inspector</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-white font-bold px-2">✕</button>
+            </div>
+            <pre id="inspect-content" class="flex-1 bg-gray-950 p-4 rounded overflow-auto text-xs font-mono text-green-400 border border-gray-700"></pre>
+        </div>
+    </div>
+
+    <script>
+        // --- DOM Elements ---
+        const els = {
+            btnStart: document.getElementById('btn-start-hunt'),
+            inputs: {
+                gen: document.getElementById('gen-input'),
+                pop: document.getElementById('pop-input'),
+                grid: document.getElementById('grid-size'),
+                steps: document.getElementById('t-steps'),
+                dt: document.getElementById('dt-val')
+            },
+            status: {
+                banner: document.getElementById('status-banner'),
+                event: document.getElementById('status-event'),
+                sse: document.getElementById('status-sse'),
+                hNorm: document.getElementById('status-h-norm'),
+                result: document.getElementById('final-result-box')
+            },
+            progress: {
+                container: document.getElementById('progress-container'),
+                bar: document.getElementById('progress-bar'),
+                label: document.getElementById('progress-label')
+            },
+            inspect: {
+                btn: document.getElementById('btn-inspect'),
+                modal: document.getElementById('inspect-modal'),
+                content: document.getElementById('inspect-content')
+            }
+        };
+
+        let isPolling = false;
+        let pollInterval;
+        let const_keys = {};
+        let telemetryChart;
+        let lastJobUuid = null;
+
+        // --- Chart Initialization ---
+        function initChart() {
+            const ctx = document.getElementById('telemetryChart').getContext('2d');
+            telemetryChart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'SSE Loss',
+                        borderColor: '#06b6d4', // Cyan
+                        backgroundColor: 'rgba(6, 182, 212, 0.1)',
+                        data: [],
+                        tension: 0.3,
+                        yAxisID: 'y'
+                    }, {
+                        label: 'Stability (H-Norm)',
+                        borderColor: '#9333ea', // Purple
+                        backgroundColor: 'rgba(147, 51, 234, 0.1)',
+                        data: [],
+                        tension: 0.3,
+                        yAxisID: 'y1'
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    interaction: { mode: 'index', intersect: false },
+                    scales: {
+                        x: { grid: { color: '#374151' }, ticks: { color: '#9ca3af' } },
+                        y: { position: 'left', grid: { color: '#374151' }, ticks: { color: '#06b6d4' } },
+                        y1: { position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#9333ea' } }
+                    }
+                }
+            });
+        }
+
+        // --- Core Logic ---
+        async function startHunt() {
+            els.btnStart.disabled = true;
+            els.status.banner.textContent = "Initializing Remote Environment...";
+            
+            // Reset Chart
+            telemetryChart.data.labels = [];
+            telemetryChart.data.datasets.forEach(ds => ds.data = []);
+            telemetryChart.update();
+
+            try {
+                const payload = {
+                    evolutionary: {
+                        generations: parseInt(els.inputs.gen.value),
+                        population: parseInt(els.inputs.pop.value)
+                    },
+                    physics: {
+                        grid_size: parseInt(els.inputs.grid.value),
+                        t_steps: parseInt(els.inputs.steps.value),
+                        dt: parseFloat(els.inputs.dt.value)
+                    }
+                };
+
+                const response = await fetch('/api/start-hunt', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                
+                if (response.ok) {
+                    if (!isPolling) {
+                        isPolling = true;
+                        pollInterval = setInterval(pollStatus, 3000);
+                        els.progress.container.classList.remove('hidden');
+                    }
+                } else {
+                    els.status.banner.textContent = "Start Failed";
+                    els.btnStart.disabled = false;
+                }
+            } catch (e) {
+                els.status.banner.textContent = "Network Error";
+                els.btnStart.disabled = false;
+            }
+        }
+
+        async function pollStatus() {
+            if (!const_keys.HUNT_STATUS) return;
+            
+            try {
+                const [statusRes, progRes] = await Promise.all([
+                    fetch('/api/get-status'),
+                    fetch('/api/get-progress')
+                ]);
+                
+                const statusData = await statusRes.json();
+                const progData = await progRes.json();
+
+                // Update Progress
+                if (progData.total_gens > 0) {
+                    const pct = Math.min(100, (progData.current_gen / progData.total_gens) * 100);
+                    els.progress.bar.style.width = `${pct}%`;
+                    els.progress.label.textContent = `${Math.floor(pct)}% (Gen ${progData.current_gen}/${progData.total_gens})`;
+                }
+
+                // Update Chart
+                const sse = parseFloat(statusData[const_keys.LAST_SSE]);
+                const hNorm = parseFloat(statusData[const_keys.LAST_STABILITY]);
+                const currentGen = progData.current_gen;
+
+                if (!isNaN(sse) && currentGen > telemetryChart.data.labels.length) {
+                    telemetryChart.data.labels.push(currentGen);
+                    telemetryChart.data.datasets[0].data.push(sse);
+                    telemetryChart.data.datasets[1].data.push(hNorm);
+                    telemetryChart.update();
+                }
+
+                // Update Text & Inspector
+                const state = statusData[const_keys.HUNT_STATUS] || 'Unknown';
+                const eventText = statusData[const_keys.LAST_EVENT] || '-';
+                
+                els.status.banner.textContent = state;
+                els.status.event.textContent = eventText;
+                els.status.sse.textContent = statusData[const_keys.LAST_SSE];
+                els.status.hNorm.textContent = statusData[const_keys.LAST_STABILITY];
+                els.status.result.textContent = JSON.stringify(statusData[const_keys.FINAL_RESULT], null, 2);
+
+                // UUID Extraction for Inspection
+                if (eventText.includes("Analyzed")) {
+                    // Assuming format "Analyzed <uuid>..."
+                    const parts = eventText.split(' ');
+                    if (parts.length > 1) {
+                        lastJobUuid = parts[1].replace('...', '');
+                        els.inspect.btn.classList.remove('hidden');
+                    }
+                }
+
+                if (state === 'Completed' || state.startsWith('Error')) {
+                    els.btnStart.disabled = false;
+                    clearInterval(pollInterval);
+                    isPolling = false;
+                }
+            } catch (e) {
+                console.error("Poll failed", e);
+            }
+        }
+
+        // --- Inspection Logic ---
+        async function inspectLastRun() {
+            if (!lastJobUuid) return;
+            try {
+                const res = await fetch(`/api/get-artifact/${lastJobUuid}`);
+                if (res.ok) {
+                    const json = await res.json();
+                    els.inspect.content.textContent = JSON.stringify(json, null, 2);
+                    els.inspect.modal.classList.remove('hidden');
+                } else {
+                    alert("Artifact not found. It may have been cleaned up.");
+                }
+            } catch (e) {
+                alert("Failed to fetch artifact.");
+            }
+        }
+
+        window.closeModal = function() {
+            els.inspect.modal.classList.add('hidden');
+        }
+
+        async function init() {
+            initChart();
+            try {
+                const res = await fetch('/api/get-constants');
+                const_keys = await res.json();
+                pollStatus();
+            } catch (e) {
+                els.status.banner.textContent = "API_CONNECT_FAIL";
+            }
+        }
+
+        els.btnStart.addEventListener('click', startHunt);
+        document.addEventListener('DOMContentLoaded', init);
+    </script>
+</body>
+</html>

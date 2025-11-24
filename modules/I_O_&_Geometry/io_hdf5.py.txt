@@ -1,0 +1,47 @@
+"""
+MODULE: io_hdf5.py
+CLASSIFICATION: V11.0 I/O Handler
+GOAL: HDF5 I/O helpers for FMIA / closed-loop runs.
+      Enforces the Unified I/O Contract.
+CONTRACT ID: IO-DAT-V11
+"""
+from __future__ import annotations
+from typing import Tuple
+import h5py
+import numpy as np
+
+def save_fmia_results_hdf5(
+    path: str,
+    time: np.ndarray,
+    rho_history: np.ndarray,
+) -> None:
+    """
+    Save FMIA results to HDF5.
+    
+    Parameters
+    ----------
+    path : str
+        Output file path (e.g. ./simulation_data/rho_history_<run_id>.h5).
+    time : np.ndarray
+        1D array of time points.
+    rho_history : np.ndarray
+        Time-series of rho, shape (T, N_grid) or similar.
+    """
+    path = str(path)
+    with h5py.File(path, "w") as h5:
+        h5.create_dataset("time", data=time)
+        h5.create_dataset("rho", data=rho_history)
+
+def load_simulation_results(path: str) -> Tuple[np.ndarray, np.ndarray]:
+    """
+    Load simulation results from HDF5.
+
+    Returns
+    -------
+    (time, rho) : (np.ndarray, np.ndarray)
+    """
+    path = str(path)
+    with h5py.File(path, "r") as h5:
+        time = h5["time"][:]
+        rho = h5["rho"][:]
+    return time, rho
