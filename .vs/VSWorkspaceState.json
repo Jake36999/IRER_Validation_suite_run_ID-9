@@ -1,7 +1,8 @@
 {
   "ExpandedNodes": [
-    ""
+    "",
+    "\\modules"
   ],
-  "SelectedNode": "\\app.py",
+  "SelectedNode": "\\deploy.ps1",
   "PreviewInSolutionExplorer": false
 }

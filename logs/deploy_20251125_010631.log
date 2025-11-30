@@ -1,0 +1,36 @@
+**********************
+PowerShell transcript start
+Start time: 20251125010631
+Username: DATTOWER\jakem
+RunAs User: DATTOWER\jakem
+Configuration Name: 
+Machine: DATTOWER (Microsoft Windows NT 10.0.22631.0)
+Host Application: C:\Program Files\PowerShell\7\pwsh.dll -NoProfile -ExecutionPolicy Bypass -Command Import-Module 'c:\Users\jakem\.vscode\extensions\ms-vscode.powershell-2025.4.0\modules\PowerShellEditorServices\PowerShellEditorServices.psd1'; Start-EditorServices -HostName 'Visual Studio Code Host' -HostProfileId 'Microsoft.VSCode' -HostVersion '2025.4.0' -BundledModulesPath 'c:\Users\jakem\.vscode\extensions\ms-vscode.powershell-2025.4.0\modules' -EnableConsoleRepl -StartupBanner "PowerShell Extension v2025.4.0
+Copyright (c) Microsoft Corporation.
+
+https://aka.ms/vscode-powershell
+Type 'help' to get help.
+" -LogLevel 'Warning' -LogPath 'c:\Users\jakem\AppData\Roaming\Code\logs\20251125T003635\window1\exthost\ms-vscode.powershell' -SessionDetailsPath 'c:\Users\jakem\AppData\Roaming\Code\User\globalStorage\ms-vscode.powershell\sessions\PSES-VSCode-22632-728293.json' -FeatureFlags @() 
+Process ID: 14912
+PSVersion: 7.5.4
+PSEdition: Core
+GitCommitId: 7.5.4
+OS: Microsoft Windows 10.0.22631
+Platform: Win32NT
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1, 6.0, 7.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+WSManStackVersion: 3.0
+**********************
+
+================================================
+IRER V12.0 DEPLOYMENT LIFECYCLE - PHASE 0
+Initialization & Validation
+================================================
+Testing SSH connectivity...
+PS>TerminatingError(): "SSH connectivity test failed: ssh: connect to host 20.186.178.188 port 22: Connection timed out"
+❌ ERROR: Validation failed: SSH connectivity test failed: ssh: connect to host 20.186.178.188 port 22: Connection timed out
+**********************
+PowerShell transcript end
+End time: 20251125010636
+**********************
