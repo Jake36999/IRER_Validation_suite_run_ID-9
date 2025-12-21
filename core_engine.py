@@ -40,7 +40,7 @@ def update_steering_config(new_params: Dict[str, Any]):
 
 def generate_deterministic_hash(params: dict) -> str:
    param_str = json.dumps(params, sort_keys=True).encode('utf-8')
-   return hashlib.sha1(param_str).hexdigest()
+   return hashlib.sha256(param_str).hexdigest()
 
 # --- V12 DCO: RUNNER ABSTRACTION ---
 class JobRunner:
@@ -125,7 +125,7 @@ def _generate_config_file(job_uuid, params, gen, i, grid, steps, dt):
        **params
    }
    path = os.path.join(settings.CONFIG_DIR, f"config_{job_uuid}.json")
-   with open(path, 'w') as f: json.dump(config, f, indent=2)
+   with open(path, 'w') as f: json.dump(config, f, indent=2, sort_keys=True)
    return path
 
 def execute_hunt(num_generations, population_size, grid_size, t_steps, dt):
