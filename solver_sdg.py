@@ -8,6 +8,7 @@ FIXES:
 """
 import jax
 import jax.numpy as jnp
+from jax.scipy import ndimage
 from functools import partial
 
 # FIX 1: Removed 'omega' and 'dx' from static_argnames. 
@@ -25,35 +26,21 @@ def _jacobi_poisson_solver(source, x, dx, iterations, omega):
         x = (1.0 - omega) * x + omega * x_new
     return x
 
-@jax.jit
-def _compute_spatial_christoffel(g_ij, dx):
-    """
-    Computes spatial Christoffel symbols Gamma^k_{ij} for a 2D metric g_ij.
-    """
-    N = g_ij.shape[0]
-    
-    inv_2x2 = jax.vmap(jax.vmap(jnp.linalg.inv))
-    g_inv_ij = inv_2x2(g_ij)
+def _sample_metric_component(field, coord):
+    return ndimage.map_coordinates(field, coord[:, None], order=1, mode="wrap")[0]
 
-    dg_dx = (jnp.roll(g_ij, -1, axis=0) - jnp.roll(g_ij, 1, axis=0)) / (2 * dx)
-    dg_dy = (jnp.roll(g_ij, -1, axis=1) - jnp.roll(g_ij, 1, axis=1)) / (2 * dx)
 
-    def get_dg(k, m, n):
-        if k == 0: return dg_dx[:, :, m, n]
-        return dg_dy[:, :, m, n]
-
-    Gamma = jnp.zeros((N, N, 2, 2, 2)) 
-
-    for k in range(2):
-        for i in range(2):
-            for j in range(2):
-                term = jnp.zeros((N, N))
-                for l in range(2):
-                    val = get_dg(i, j, l) + get_dg(j, i, l) - get_dg(l, i, j)
-                    term += g_inv_ij[:, :, k, l] * val
-                Gamma = Gamma.at[:, :, k, i, j].set(0.5 * term)
-    
-    return Gamma
+def _metric_at_coord(coord, g_ij):
+    return jnp.stack(
+        [
+            jnp.stack(
+                [_sample_metric_component(g_ij[..., i, j], coord) for j in range(2)],
+                axis=-1,
+            )
+            for i in range(2)
+        ],
+        axis=-2,
+    )
 
 @jax.jit
 def calculate_informational_stress_energy(Psi, sdg_kappa, sdg_eta):
@@ -92,13 +79,56 @@ def solve_sdg_geometry(T_info, rho_s, spatial_res, alpha, rho_vac):
 def apply_complex_diffusion(Psi, epsilon, g_mu_nu, spatial_resolution):
     dx = 1.0 / spatial_resolution
     g_ij = jnp.moveaxis(g_mu_nu[1:3, 1:3], (0, 1), (2, 3))
-    
+
     inv_2x2 = jax.vmap(jax.vmap(jnp.linalg.inv))
     g_inv = inv_2x2(g_ij)
 
-    lap_flat = (jnp.roll(Psi, -1, 0) + jnp.roll(Psi, 1, 0) + 
-                jnp.roll(Psi, -1, 1) + jnp.roll(Psi, 1, 1) - 4*Psi) / dx**2
+    metric = jnp.moveaxis(g_mu_nu, (0, 1), (2, 3))
+    det_g = jnp.linalg.det(metric)
+    sqrt_neg_g = jnp.sqrt(jnp.maximum(-det_g, 0.0))
 
-    trace_g_inv = g_inv[..., 0, 0] + g_inv[..., 1, 1]
-    
-    return (epsilon * 0.5 + 1j * epsilon * 0.8) * lap_flat * trace_g_inv
+    grid = jnp.stack(
+        jnp.meshgrid(jnp.arange(g_ij.shape[0]), jnp.arange(g_ij.shape[1]), indexing="ij"),
+        axis=-1,
+    )
+    g_ij_at = partial(_metric_at_coord, g_ij=g_ij)
+    dg = jax.vmap(jax.vmap(jax.jacfwd(g_ij_at)))(grid)
+    dg_k = jnp.moveaxis(dg, -1, -3)
+
+    term = jnp.stack(
+        [
+            jnp.stack(
+                [
+                    dg_k[..., i, :, j] + dg_k[..., j, :, i] - dg_k[..., :, i, j]
+                    for j in range(2)
+                ],
+                axis=-1,
+            )
+            for i in range(2)
+        ],
+        axis=-2,
+    )
+    Gamma = 0.5 * jnp.einsum("...kl,...lij->...kij", g_inv, term)
+
+    dPsi_dy = jnp.gradient(Psi, dx, axis=0)
+    dPsi_dx = jnp.gradient(Psi, dx, axis=1)
+    dPsi = jnp.stack([dPsi_dy, dPsi_dx], axis=-1)
+
+    d2Psi_dy2 = jnp.gradient(dPsi_dy, dx, axis=0)
+    d2Psi_dx2 = jnp.gradient(dPsi_dx, dx, axis=1)
+    d2Psi_dydx = jnp.gradient(dPsi_dy, dx, axis=1)
+    d2Psi_dxdy = jnp.gradient(dPsi_dx, dx, axis=0)
+
+    hessian = jnp.stack(
+        [
+            jnp.stack([d2Psi_dy2, d2Psi_dydx], axis=-1),
+            jnp.stack([d2Psi_dxdy, d2Psi_dx2], axis=-1),
+        ],
+        axis=-2,
+    )
+
+    laplace_beltrami = jnp.einsum("...ij,...ij->...", g_inv, hessian) - jnp.einsum(
+        "...ij,...kij,...k->...", g_inv, Gamma, dPsi
+    )
+
+    return (epsilon * 0.5 + 1j * epsilon * 0.8) * laplace_beltrami
