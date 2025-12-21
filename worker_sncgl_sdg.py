@@ -142,9 +142,41 @@ def write_results(job_uuid, state, sse, h_norm):
     path = settings.DATA_DIR / f"rho_history_{job_uuid}.h5"
     
     with h5py.File(path, "w") as f:
-        f.create_dataset("final_psi", data=np.array(state.Psi))
-        f.create_dataset("final_rho_s", data=np.array(state.rho_s))
-        f.create_dataset("final_g_mu_nu", data=np.array(state.g_mu_nu))
+        def chunk_shape(shape, dtype, target_bytes=4 * 1024 * 1024):
+            if not shape:
+                return None
+            itemsize = np.dtype(dtype).itemsize
+            chunk = list(shape)
+            if np.prod(chunk) * itemsize <= target_bytes:
+                return tuple(chunk)
+            for dim in range(len(chunk) - 1, -1, -1):
+                while chunk[dim] > 1 and np.prod(chunk) * itemsize > target_bytes:
+                    chunk[dim] = max(1, chunk[dim] // 2)
+            return tuple(chunk)
+
+        def write_chunked_dataset(h5_file, name, array):
+            shape = tuple(array.shape)
+            dtype = array.dtype
+            chunks = chunk_shape(shape, dtype)
+            dataset = h5_file.create_dataset(
+                name,
+                shape=shape,
+                dtype=dtype,
+                chunks=chunks,
+                compression="gzip",
+                compression_opts=4,
+            )
+            if not shape:
+                dataset[()] = np.array(array)
+                return
+            chunk_dim0 = chunks[0] if chunks else shape[0]
+            for start in range(0, shape[0], chunk_dim0):
+                stop = min(start + chunk_dim0, shape[0])
+                dataset[start:stop, ...] = np.array(array[start:stop, ...])
+
+        write_chunked_dataset(f, "final_psi", state.Psi)
+        write_chunked_dataset(f, "final_rho_s", state.rho_s)
+        write_chunked_dataset(f, "final_g_mu_nu", state.g_mu_nu)
         f.attrs[settings.SSE_METRIC_KEY] = sse
         f.attrs[settings.STABILITY_METRIC_KEY] = h_norm
     print(f"[Worker] Artifact saved: {path}")
