@@ -62,7 +62,7 @@ class ProvenanceWatcher(FileSystemEventHandler):
                 # Short delay to ensure write complete
                 time.sleep(0.1) 
                 with open(event.src_path, 'r') as f: data = json.load(f)
-                sentinel = data.get("sentinel_code", 0)
+                sentinel = data.get("sentinel_code", data.get("validation_status", 0))
                 if sentinel == 0 or sentinel == settings.SENTINEL_SUCCESS:
                     metrics = data.get("metrics", {})
                     status_update = {
