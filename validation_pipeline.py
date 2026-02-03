@@ -175,6 +175,63 @@ def calculate_sdg_h_norm_l2(g_mu_nu: np.ndarray, rho_field: np.ndarray, kappa: f
     except Exception:
         return settings.SENTINEL_GEOMETRIC_SINGULARITY
 
+def _extract_g00(g_mu_nu: np.ndarray) -> np.ndarray:
+    """Extract g_00 from 2D/3D metric tensor arrays."""
+    if g_mu_nu.ndim == 4: # 2D Sim (4,4,X,Y)
+        return g_mu_nu[0, 0, :, :]
+    if g_mu_nu.ndim == 5: # 3D Sim (4,4,X,Y,Z)
+        return g_mu_nu[0, 0, :, :, :]
+    raise ValueError("Unsupported g_mu_nu shape for g_00 extraction")
+
+def _compute_newtonian_potential(rho_field: np.ndarray, kappa: float = 1.0) -> np.ndarray:
+    """
+    Estimate Newtonian potential via Poisson solve: ∇^2 Φ = kappa * rho.
+    Uses FFT with zero-mode suppression for stability.
+    """
+    rho_k = np.fft.fftn(rho_field)
+    dims = rho_field.ndim
+    freqs = [np.fft.fftfreq(n) * 2.0 * np.pi for n in rho_field.shape]
+    grids = np.meshgrid(*freqs, indexing="ij")
+    k2 = np.zeros_like(rho_field, dtype=float)
+    for grid in grids:
+        k2 += grid**2
+    phi_k = np.zeros_like(rho_k, dtype=complex)
+    mask = k2 > 0.0
+    phi_k[mask] = -kappa * rho_k[mask] / k2[mask]
+    phi = np.fft.ifftn(phi_k).real
+    return phi
+
+def calculate_weak_field_g00_residual(
+    g_mu_nu: np.ndarray,
+    rho_field: np.ndarray,
+    kappa: float = 1.0,
+    weak_field_max_delta: float = 0.1
+) -> dict:
+    """
+    Checks weak-field consistency: g_00 ≈ -1 + 2Φ_N.
+    Returns residual metrics and a weak-field eligibility flag.
+    """
+    g_00 = _extract_g00(g_mu_nu)
+    if np.isnan(g_00).any():
+        return {
+            "residual": settings.SENTINEL_GEOMETRIC_SINGULARITY,
+            "max_abs_delta": settings.SENTINEL_GEOMETRIC_SINGULARITY,
+            "expected_l2": settings.SENTINEL_GEOMETRIC_SINGULARITY,
+            "weak_field": False
+        }
+    phi_n = _compute_newtonian_potential(rho_field, kappa)
+    g_00_expected = -1.0 + 2.0 * phi_n
+    residual = np.sqrt(np.mean((g_00 - g_00_expected)**2))
+    max_abs_delta = float(np.max(np.abs(g_00 + 1.0)))
+    expected_l2 = np.sqrt(np.mean(g_00_expected**2))
+    weak_field = max_abs_delta <= weak_field_max_delta
+    return {
+        "residual": float(residual),
+        "max_abs_delta": float(max_abs_delta),
+        "expected_l2": float(expected_l2),
+        "weak_field": weak_field
+    }
+
 def validate_run(job_uuid: str):
     print(f"[Validator {job_uuid[:8]}] Starting V12 Certified Analysis...")
     
@@ -221,18 +278,40 @@ def validate_run(job_uuid: str):
         # NOW: Full L2 Norm check
         h_norm = calculate_sdg_h_norm_l2(raw_g, raw_rho, kappa)
 
-        print(f"[Validator] Metrics: SSE={log_prime_sse:.6f} | H-Norm={h_norm:.6f}")
+        weak_field_check = calculate_weak_field_g00_residual(raw_g, raw_rho, kappa)
+        weak_field_residual = weak_field_check["residual"]
+        weak_field_max_delta = weak_field_check["max_abs_delta"]
+        weak_field_expected_l2 = weak_field_check["expected_l2"]
+        weak_field_active = weak_field_check["weak_field"]
+        weak_field_residual_tol = 0.05
+        weak_field_pass = (not weak_field_active) or (weak_field_residual <= weak_field_residual_tol)
+
+        print(
+            "[Validator] Metrics: SSE={:.6f} | H-Norm={:.6f} | "
+            "WeakFieldResidual={:.6f}".format(log_prime_sse, h_norm, weak_field_residual)
+        )
 
         # 5. Write Provenance (Unified Data Contract)
+        validation_flags = []
+        validation_status = settings.SENTINEL_SUCCESS
+        if weak_field_active and not weak_field_pass:
+            validation_flags.append("weak_field_g00_violation")
+            validation_status = settings.SENTINEL_SCIENTIFIC_FAILURE
+
         provenance = {
             settings.HASH_KEY: job_uuid,
             "metrics": {
                 settings.SSE_METRIC_KEY: log_prime_sse,
                 settings.STABILITY_METRIC_KEY: h_norm,
+                "weak_field_g00_residual": weak_field_residual,
+                "weak_field_g00_expected_l2": weak_field_expected_l2,
+                "weak_field_g00_max_abs_delta": weak_field_max_delta,
+                "weak_field_g00_pass": 1.0 if weak_field_pass else 0.0,
                 "sse_null_phase_scramble": log_prime_sse * 10.0, # Mock null for now
                 "sse_null_target_shuffle": log_prime_sse * 15.0
             },
-            "validation_status": settings.SENTINEL_SUCCESS,
+            "validation_status": validation_status,
+            "validation_flags": validation_flags,
             "spectral_targets": "Log-Prime (V9 Protocol)"
         }
         
